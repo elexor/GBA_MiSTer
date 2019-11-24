@@ -126,7 +126,6 @@ module emu
 
 assign ADC_BUS  = 'Z;
 assign {UART_RTS, UART_TXD, UART_DTR} = 0;
-assign USER_OUT = '1;
 
 assign AUDIO_S   = 1;
 assign AUDIO_MIX = status[8:7];
@@ -134,7 +133,7 @@ assign AUDIO_MIX = status[8:7];
 assign LED_USER  = cart_download | bk_pending;
 assign LED_DISK  = 0;
 assign LED_POWER = 0;
-assign BUTTONS   = 0;
+assign BUTTONS   = llapi_osd;
 
 assign VIDEO_ARX = status[1] ? 8'd16 : 8'd3;
 assign VIDEO_ARY = status[1] ? 8'd9  : 8'd2;
@@ -178,11 +177,13 @@ parameter CONF_STR = {
     "O24,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
     "O78,Stereo Mix,None,25%,50%,100%;", 
     "-;",
+    "OM,Serial Mode,Off,LLAPI;",
+    "-;",
     "O5,Pause,Off,On;",
     "-;",
     "R0,Reset;",
     "J1,A,B,L,R,Select,Start,FastForward;",
-	 "jn,A,B,L,R,Select,Start,X;",
+    "jn,A,B,L,R,Select,Start,X;",
     "V,v",`BUILD_DATE
 };
 
@@ -207,7 +208,7 @@ wire [15:0] ioctl_dout;
 wire        ioctl_wr;
 wire  [7:0] ioctl_index;
 
-wire [11:0] joy;
+wire [11:0] joy_usb;
 wire [21:0] gamma_bus;
 
 hps_io #(.STRLEN($size(CONF_STR)>>3), .WIDE(1)) hps_io
@@ -219,7 +220,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3), .WIDE(1)) hps_io
 	.buttons(buttons),
 	.forced_scandoubler(forced_scandoubler),
 
-	.joystick_0(joy),
+	.joystick_0(joy_usb),
 
 	.status(status),
 	.status_menumask(status_menumask),
@@ -306,7 +307,7 @@ gba
 (
 	.clk100(clk_sys),
 	.GBA_on(~reset),                  // switching from off to on = reset
-	.GBA_lockspeed(~joy[10]),         // 1 = 100% speed, 0 = max speed
+	.GBA_lockspeed(~joy_usb[10]),         // 1 = 100% speed, 0 = max speed
 	.GBA_flash_1m(flash_1m),          // 1 when string "FLASH1M_V" is anywhere in gamepak
 	.CyclePrecalc(status[5] ? 16'd0 : 16'd100), // 100 seems to be ok to keep fullspeed for all games
 	.MaxPakAddr(last_addr[26:2]),     // max byte address that will contain data, required for buggy games that read behind their own memory, e.g. zelda minish cap
@@ -355,6 +356,116 @@ gba
 	.sound_out_left(AUDIO_L),
 	.sound_out_right(AUDIO_R)
 );
+
+////////////////////////////  LLAPI  ///////////////////////////////////
+
+wire [31:0] llapi_buttons, llapi_buttons2;
+wire [71:0] llapi_analog, llapi_analog2;
+wire [7:0]  llapi_type, llapi_type2;
+wire llapi_en, llapi_en2;
+
+wire llapi_select = status[22];
+
+wire llapi_latch_o, llapi_latch_o2, llapi_data_o, llapi_data_o2;
+
+// Indexes:
+// 0 = D+    = P1 Latch
+// 1 = D-    = P1 Data
+// 2 = TX-   = LLAPI Enable
+// 3 = GND_d = N/C
+// 4 = RX+   = P2 Latch
+// 5 = RX-   = P2 Data
+
+always_comb begin
+	USER_OUT = 6'b111111;
+	if (llapi_select) begin
+		USER_OUT[0] = llapi_latch_o;
+		USER_OUT[1] = llapi_data_o;
+		USER_OUT[2] = ~(llapi_select & ~OSD_STATUS);
+		USER_OUT[4] = llapi_latch_o2;
+		USER_OUT[5] = llapi_data_o2;
+	end
+end
+
+LLAPI llapi
+(
+	.CLK_50M(CLK_50M),
+	.LLAPI_SYNC(vbl),
+	.IO_LATCH_IN(USER_IN[0]),
+	.IO_LATCH_OUT(llapi_latch_o),
+	.IO_DATA_IN(USER_IN[1]),
+	.IO_DATA_OUT(llapi_data_o),
+	.ENABLE(llapi_select & ~OSD_STATUS),
+	.LLAPI_BUTTONS(llapi_buttons),
+	.LLAPI_ANALOG(llapi_analog),
+	.LLAPI_TYPE(llapi_type),
+	.LLAPI_EN(llapi_en)
+);
+
+LLAPI llapi2
+(
+	.CLK_50M(CLK_50M),
+	.LLAPI_SYNC(vbl),
+	.IO_LATCH_IN(USER_IN[4]),
+	.IO_LATCH_OUT(llapi_latch_o2),
+	.IO_DATA_IN(USER_IN[5]),
+	.IO_DATA_OUT(llapi_data_o2),
+	.ENABLE(llapi_select & ~OSD_STATUS),
+	.LLAPI_BUTTONS(llapi_buttons2),
+	.LLAPI_ANALOG(llapi_analog2),
+	.LLAPI_TYPE(llapi_type2),
+	.LLAPI_EN(llapi_en2)
+);
+
+// "J1,A,B,L,R,Select,Start,Turbo;",
+
+wire [11:0] joy_ll_a;
+always_comb begin
+	// map for saturn controller
+	// use L and R instead of top face buttons
+	// no select button so use Z
+	if (llapi_type == 3 || llapi_type == 8) begin
+		joy_ll_a = { 2'd0,
+			llapi_buttons[5],  llapi_buttons[6],                   // Start Select
+			llapi_buttons[9] | llapi_buttons[7], llapi_buttons[8], // R L
+			llapi_buttons[0],  llapi_buttons[1],                   // B A
+			llapi_buttons[27], llapi_buttons[26], llapi_buttons[25], llapi_buttons[24] // d-pad
+		};
+	end else begin
+		joy_ll_a = { 2'd0,
+			llapi_buttons[5],  llapi_buttons[4], // Start Select
+			llapi_buttons[7],  llapi_buttons[6], // RT LT
+			llapi_buttons[0],  llapi_buttons[1], // B A
+			llapi_buttons[27], llapi_buttons[26], llapi_buttons[25], llapi_buttons[24] // d-pad
+		};
+	end
+end
+
+wire [11:0] joy_ll_b;
+always_comb begin
+	// map for saturn controller
+	// use L and R instead of top face buttons
+	// no select button so use Z
+	if (llapi_type2 == 3 || llapi_type2 == 8) begin
+		joy_ll_b = { 2'd0,
+			llapi_buttons2[5],  llapi_buttons2[6],                    // Start Select
+			llapi_buttons2[9] | llapi_buttons2[7], llapi_buttons2[8], // R L
+			llapi_buttons2[0],  llapi_buttons2[1],                    // B A
+			llapi_buttons2[27], llapi_buttons2[26], llapi_buttons2[25], llapi_buttons2[24] // d-pad
+		};
+	end else begin
+		joy_ll_b = { 2'd0,
+			llapi_buttons2[5],  llapi_buttons2[4], // Start Select
+			llapi_buttons2[7],  llapi_buttons2[6], // RT LT
+			llapi_buttons2[0],  llapi_buttons2[1], // B A
+			llapi_buttons2[27], llapi_buttons2[26], llapi_buttons2[25], llapi_buttons2[24] // d-pad
+		};
+	end
+end
+
+wire llapi_osd = (llapi_buttons[26] && llapi_buttons[5] && llapi_buttons[0]) || (llapi_buttons2[26] && llapi_buttons2[5] && llapi_buttons2[0]);
+
+wire [11:0] joy = joy_usb | joy_ll_a | joy_ll_b;
 
 ////////////////////////////  CODES  ///////////////////////////////////
 
