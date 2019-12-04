@@ -3,7 +3,6 @@ GBA for MiSTer
 
 # HW Requirements/Features
 - Requires 32MB SDRAM for games less than 32MB. 32MB games require either 64MB or 128MB module.
-- HDMI-only. Native VGA output is not implemented (yet). VGA output can be enabled with vga_scaler=1 option in MiSTer.ini, so it will output the same HDMI resolution.
 
 # Bios
 Opensource Bios from Normmatt is included, however it has issues with some games.
@@ -11,24 +10,40 @@ Original GBA BIOS can be placed to GBA folder with name boot.rom
 
 PLEASE do not report errors without testing with the original BIOS
 
-# Games with Crashes/Hang
-
+# Games with crashes/hang
 - Banjo-Kazooie hangs after start. Workaround: instantly save ingame, reset the game and reload the save
-- Board Game classics hangs in Mainmenu
-- Boktai 2 hangs in language selection
 - Bomberman Max 2 - Blue: black screen after intro
 
-- Chessmaster: can't pick up any stone
 - Colin McRae Rally 2.0 hangs when going into race
 
-- Final Fantasy IV hangs in intro
+- Digimon Racing: hang on 3rd screen(Griptonite)
 
-- Megaman Battle Network: hang after startmenu
+- Fear Factor Unleashed: hang after ~4 seconds
 
+- Madden06/06: crash at coin toss
+
+- Iridium II: hangs at first boss
+
+- Sennen Kazoku: hang on first screen
+- Starsky & Hutch: crash going ingame
 - SuperMarioAdvance: MarioBros Minigame hangs. Same game is included  and working in Super Mario Advance 2
 
+- TOCA World Touring Cars: hangs going into race
+- Top Gun - Combat Zones: doesn't recognize A-button in main menu
+
+# Games that are unplayable because of catridge hardware missing
+- Boktai 1/2/Shin Bokura no Taiyou(Japanese Boktai)
+- Warioware Twisted
+- Yoshi's Universal Gravitation
+
+# Games that refuse playing because of copy protection
+- Nes/Famicon classics (most of them)
+- Dragon Ball Z - Taiketsu
+- Dragon Ball Z - The Legacy of Goku
+- Rocky: tests for sram, game is using eeprom
+
 # Status
-~200 games tested until ingame:
+~1600 games tested until ingame:
 - 95% without major issues (no crash, playable)
 
 # Features
@@ -39,6 +54,5 @@ PLEASE do not report errors without testing with the original BIOS
 
 # Not included
 - Multiplayer features like Serial
-- GBA Module function(e.g. Boktai sun sensor)
+- Tilt/Gyro/Rumble/Sun sensor)
 - RTC
-- probably some more

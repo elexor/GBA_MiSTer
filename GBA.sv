@@ -151,14 +151,19 @@ pll pll
 	.refclk(CLK_50M),
 	.rst(0),
 	.outclk_0(clk_sys),
-	.outclk_1(SDRAM_CLK),
-	.outclk_2(CLK_VIDEO),
+	.outclk_1(CLK_VIDEO),
 	.locked(pll_locked)
 );
 
-wire reset = RESET | buttons[1] | status[0] | cart_download | bk_loading;
+wire reset = RESET | buttons[1] | status[0] | cart_download | bk_loading | hold_reset;
 
 ////////////////////////////  HPS I/O  //////////////////////////////////
+
+// Status Bit Map:
+// 0         1         2         3
+// 01234567890123456789012345678901
+// 0123456789ABCDEFGHIJKLMNOPQRSTUV
+// XXXXXXXXXXX XX         X
 
 `include "build_id.v"
 parameter CONF_STR = {
@@ -174,6 +179,7 @@ parameter CONF_STR = {
     "D0-;",
     "O1,Aspect Ratio,3:2,16:9;",
     "O9,Desaturate,Off,On;",
+    "OA,Sync core to video,Off,On;",
     "O24,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
     "O78,Stereo Mix,None,25%,50%,100%;", 
     "-;",
@@ -294,6 +300,7 @@ end
 
 wire save_eeprom, save_sram, save_flash;
 wire [31:0] cpu_addr, cpu_frombus;
+wire fast_forward = joy[10];
 
 gba_top
 #(
@@ -307,9 +314,9 @@ gba
 (
 	.clk100(clk_sys),
 	.GBA_on(~reset),                  // switching from off to on = reset
-	.GBA_lockspeed(~joy_usb[10]),         // 1 = 100% speed, 0 = max speed
+	.GBA_lockspeed(~fast_forward),    // 1 = 100% speed, 0 = max speed
 	.GBA_flash_1m(flash_1m),          // 1 when string "FLASH1M_V" is anywhere in gamepak
-	.CyclePrecalc(status[5] ? 16'd0 : 16'd100), // 100 seems to be ok to keep fullspeed for all games
+	.CyclePrecalc(force_pause | status[5] ? 16'd0 : 16'd100), // 100 seems to be ok to keep fullspeed for all games
 	.MaxPakAddr(last_addr[26:2]),     // max byte address that will contain data, required for buggy games that read behind their own memory, e.g. zelda minish cap
 	.CyclesMissing(),                 // debug only for speed measurement, keep open
 
@@ -603,10 +610,10 @@ wire        pixel_we;
 
 reg vsync;
 always @(posedge clk_sys) begin
-	reg [3:0] sync;
+	reg [7:0] sync;
 
 	sync <= sync << 1;
-	if(pixel_we && pixel_addr == 38399) sync <= 1;
+	if(pixel_we && pixel_addr == 0) sync <= 1;
 
 	vsync <= |sync;
 end
@@ -625,17 +632,19 @@ dpram_n #(16,15,38400) vram
 
 wire [15:0] px_addr;
 wire [14:0] rgb;
+wire sync_core = status[10];
 
 reg hs, vs, hbl, vbl, ce_pix;
 reg [4:0] r,g,b;
-always @(posedge CLK_VIDEO) begin
-	reg [7:0] x,y;
-	reg [1:0] div;
-	reg old_vsync;
-	reg sync;
+reg hold_reset, force_pause;
+reg [13:0] force_pause_cnt;
 
-	old_vsync <= vsync;
-	if(~old_vsync & vsync) sync <= 1;
+always @(posedge CLK_VIDEO) begin
+	localparam V_START = 62;
+
+	reg [8:0] x,y;
+	reg [2:0] div;
+	reg old_vsync;
 
 	div <= div + 1'd1;
 
@@ -645,32 +654,64 @@ always @(posedge CLK_VIDEO) begin
 
 		{r,g,b} <= rgb;
 
-		hbl <= &x[7:4];
-		if(x == 244) begin
+		if(x == 240) hbl <= 1;
+		if(x == 000) hbl <= 0;
+
+		if(x == 293) begin
 			hs <= 1;
 
-			if(y == 163) vs <= 1;
-			if(y == 166) vs <= 0;
+			if(y == 1)   vs <= 1;
+			if(y == 4)   vs <= 0;
 		end
-		if(x == 252) hs  <= 0;
 
-		if(y == 160) vbl <= 1;
-		if(y == 000) vbl <= 0;
+		if(x == 293+32)    hs  <= 0;
+
+		if(y == V_START)     vbl <= 0;
+		if(y >= V_START+160) vbl <= 1;
 	end
 
 	if(ce_pix) begin
-		if(!hbl) px_addr <= px_addr + 1'd1;
+		if(vbl) px_addr <= 0;
+		else if(!hbl) px_addr <= px_addr + 1'd1;
+
 		x <= x + 1'd1;
-		if(&x) begin
-			if(~&y) y <= y + 1'd1;
-			else if(sync) begin
-				sync <= 0;
-				px_addr <= 0;
-				x <= 0;
-				y <= 0;
+		if(x == 398) begin
+			x <= 0;
+			if (~&y) y <= y + 1'd1;
+			if (sync_core && y >= 263) y <= 0;
+
+			if (y == V_START-1) begin
+				// Pause the core for 22 Gameboy lines to avoid reading & writing overlap (tearing)
+				force_pause <= (sync_core && ~fast_forward && pixel_addr < (240*22));
+				force_pause_cnt <= 14'd10164; // 22* 264/228 *399
 			end
 		end
+
+		if (force_pause) begin
+			if (force_pause_cnt > 0)
+				force_pause_cnt <= force_pause_cnt - 1'b1;
+			else
+				force_pause <= 0;
+		end
+
 	end
+
+	old_vsync <= vsync;
+	if(~old_vsync & vsync) begin
+		if(~sync_core & vbl) begin
+			x <= 0;
+			y <= 0;
+			vs <= 0;
+			hs <= 0;
+		end
+	end
+
+	// Avoid lost sync by reset
+	if (x == 0 && y == 0)
+		hold_reset <= 1'b0;
+	else if (reset & sync_core)
+		hold_reset <= 1'b1;
+
 end
 
 assign VGA_F1 = 0;
@@ -728,7 +769,6 @@ always @(posedge clk_sys) begin
 	else if (bk_state) bk_pending <= 0;
 end
 
-reg old_downloading = 0;
 reg [7:0] save_sz;
 always @(posedge clk_sys) begin
 	reg old_downloading;

@@ -93,6 +93,7 @@ architecture arch of gba_cpu is
 
    type t_regs is array(0 to 17) of unsigned(31 downto 0);
    signal regs : t_regs;
+   signal regs_plus_12 : unsigned(31 downto 0);
 
    signal PC               : unsigned(31 downto 0) := (others => '0');
 
@@ -128,9 +129,10 @@ architecture arch of gba_cpu is
    -- internal calculation signals
    -- ####################################
    
-   signal jump       : std_logic := '0';
-   signal new_pc     : unsigned(31 downto 0) := (others => '0');
-   signal branchnext : std_logic := '0';
+   signal jump         : std_logic := '0';
+   signal new_pc       : unsigned(31 downto 0) := (others => '0');
+   signal branchnext   : std_logic := '0';
+   signal blockr15jump : std_logic := '0';
    
    -- ############# Timing ##############
    
@@ -489,6 +491,7 @@ architecture arch of gba_cpu is
    signal endaddress       : unsigned(31 downto 0) := (others => '0');
    signal block_writevalue : unsigned(31 downto 0) := (others => '0');
    signal block_reglist    : std_logic_vector(15 downto 0) := (others => '0');
+   signal block_switch_pc  : unsigned(31 downto 0) := (others => '0');
    
    
    -- ############# MSR/MRS ##############
@@ -911,6 +914,7 @@ begin
                      else
                         regs(15)(decode_PC'left downto 0) <= decode_PC + 4;
                      end if;
+                     regs_plus_12 <= decode_PC + 8; -- only used for data operation available in arm mode
                   
                      execute_skip := '1';
                      case (decode_condition) is
@@ -992,7 +996,7 @@ begin
                
                when CALC =>
                
-                  if ((execute_writeback_calc = '0' or writeback_reg /= x"F") and calc_done = '1') then
+                  if ((execute_writeback_calc = '0' or writeback_reg /= x"F") and calc_done = '1' and branchnext = '0') then
                      state_execute <= FETCH_OP;
                      done             <= '1';
                      new_cycles_out   <= to_unsigned(execute_cycles + execute_addcycles, new_cycles_out'length);
@@ -1240,6 +1244,7 @@ begin
                            when x"6" => decode_datacomb(24 downto 21) <= x"A"; decode_datacomb(19) <= '1'; decode_datacomb(15) <= '1';                             decode_datacomb(20) <= '1'; -- 0110 CMP Hd, Rs CMP Hd, Rs Compare a register in the range 8 - 15 with a register in the range 0 - 7.Set the condition code flags on the result.
                            when x"7" => decode_datacomb(24 downto 21) <= x"A"; decode_datacomb( 3) <= '1'; decode_datacomb(19) <= '1'; decode_datacomb(15) <= '1'; decode_datacomb(20) <= '1'; -- 0111 CMP Hd, Hs CMP Hd, Hs Compare two registers in the range 8 - 15.Set the condition code flags on the result.
                                                                                                                                                                    
+                           when x"8" => decode_datacomb(24 downto 21) <= x"D";                                                                                     -- 1000 -> undefined but probably just using low for both  
                            when x"9" => decode_datacomb(24 downto 21) <= x"D"; decode_datacomb( 3) <= '1';                                                         -- 1001 MOV Rd, Hs MOV Rd, Hs Move a value from a register in the range 8 - 15 to a register in the range 0 - 7.  
                            when x"A" => decode_datacomb(24 downto 21) <= x"D"; decode_datacomb(19) <= '1'; decode_datacomb(15) <= '1';                             -- 1010 MOV Hd, Rs MOV Hd, Rs Move a value from a register in the range 0 - 7 to a register in the range 8 - 15.
                            when x"B" => decode_datacomb(24 downto 21) <= x"D"; decode_datacomb( 3) <= '1'; decode_datacomb(19) <= '1'; decode_datacomb(15) <= '1'; -- 1011 MOV Hd, Hs MOV Hd, Hs Move a value between two registers in the range 8 - 15.
@@ -1885,9 +1890,10 @@ begin
             executebus      <= '0';
          else
       
-            calc_done  <= '0';
-            jump       <= '0';
-            branchnext <= '0';
+            calc_done     <= '0';
+            jump          <= '0';
+            branchnext    <= '0';
+            blockr15jump  <= '0';
             
             bus_execute_ena <= '0';
             
@@ -1904,7 +1910,7 @@ begin
             
             shifter_start              <= '0';
             
-            if ((execute_writeback_calc = '1' and writeback_reg = x"F")) then
+            if ((execute_writeback_calc = '1' and writeback_reg = x"F" and blockr15jump = '0')) then
                branchnext       <= '1';
                if (thumbmode = '1') then
                   new_pc     <= calc_result(new_pc'left downto 1) & '0';
@@ -2384,6 +2390,8 @@ begin
                            swap_write       <= '0';
                            if (execute_datatransfer_swap = '1') then
                               gb_bus_dout <= std_logic_vector(regs(to_integer(unsigned(execute_RM_op2))));
+                           elsif (execute_rdest = x"F") then  -- pc is + 12 for data writes
+                              gb_bus_dout <= std_logic_vector(regs_plus_12);  
                            else
                               gb_bus_dout <= std_logic_vector(regs(to_integer(unsigned(execute_rdest))));
                            end if;
@@ -2459,7 +2467,7 @@ begin
                               busPrefetchClear   <= busaddress(27);
                               execute_addcycles  <= 3 + dataTicksAccess32 + dataTicksAccess32;
                               prefetch_addcycles <= 4 + dataTicksAccess32 + dataTicksAccess32;
-                           else
+                           elsif (execute_datatransfer_swap = '0') then
                               busPrefetchAdd    <= '1';
                               busPrefetchClear  <= busaddress(27);
                               if (execute_functions_detail = data_read) then
@@ -2559,6 +2567,7 @@ begin
                            endaddress       <= to_unsigned(to_integer(regs(to_integer(unsigned(execute_Rn_op1)))(busaddress'left downto 0)) + execute_block_endmod, busaddress'length);
                            block_reglist    <= execute_block_reglist;
                            block_rw_stage   <= BLOCKCHECKNEXT;
+                           block_switch_pc  <= execute_PC;
                         end if;
                         
                      when BLOCKCHECKNEXT =>
@@ -2596,7 +2605,7 @@ begin
                            end if;
                         end if;
                         
-                        if (execute_block_usermoderegs = '1' and block_regindex >=8 and block_regindex <= 14) then
+                        if (execute_block_usermoderegs = '1' and cpu_mode /= CPUMODE_USER and cpu_mode /= CPUMODE_SYSTEM) then
                            case (block_regindex) is
                               when 8  => block_writevalue <= regs_0_8;
                               when 9  => block_writevalue <= regs_0_9;
@@ -2607,6 +2616,8 @@ begin
                               when 14 => block_writevalue <= regs_0_14;
                               when others => block_writevalue <= (others => '0'); -- never happens in armwrestler or suite...
                            end case;
+                        elsif (block_regindex = 15) then  -- pc is + 12 for block writes
+                           block_writevalue     <= regs_plus_12;  
                         else
                            block_writevalue     <= regs(block_regindex);
                         end if;
@@ -2675,11 +2686,18 @@ begin
                            end if;
                            calc_result <= unsigned(gb_bus_din);
                            executebus  <= '0';
-                           execute_writeback_calc    <= not execute_block_usermoderegs;
-                           execute_writeback_userreg <= execute_block_usermoderegs;
+                           if (execute_block_usermoderegs = '1' and cpu_mode /= CPUMODE_USER and cpu_mode /= CPUMODE_SYSTEM) then
+                              execute_writeback_userreg <= '1';
+                           else
+                              execute_writeback_calc    <= '1';
+                           end if;
                            writeback_reg             <= std_logic_vector(to_unsigned(block_regindex, 4));
+                           if (block_regindex = 15) then
+                              block_switch_pc <= unsigned(gb_bus_din);
+                              blockr15jump    <= execute_block_switchmode;
+                           end if;
                         end if;
-                        
+
                      when BLOCKWRITEBACKADDR =>
                         writeback_reg          <= execute_Rn_op1;
                         calc_result            <= busaddress;
@@ -2711,16 +2729,22 @@ begin
                         Flag_Zero          <= regs(17)(30);
                         Flag_Carry         <= regs(17)(29);
                         Flag_V_Overflow    <= regs(17)(28);
-                        if (thumbmode /= regs(17)(5)) then
-                           new_pc             <= execute_PC;
-                           jump               <= '1';
+                        
+                        if (regs(17)(5) = '1') then
+                           new_pc     <= block_switch_pc(new_pc'left downto 1) & '0';
                         else
+                           new_pc     <= block_switch_pc(new_pc'left downto 2) & "00";
+                        end if;
+                        
+                        if (thumbmode = regs(17)(5)) then
                            execute_addcycles  <= 1 + codeticksAccess1632;
                            busPrefetchSub     <= '1';
                            prefetch_subcycles <= codeBaseAccess1632;
+                           jump               <= '1';
+                        else
+                           branchnext         <= '1';
                         end if;
-                        
-                        
+
                   end case;
                   
                when software_interrupt_detail =>
@@ -3053,6 +3077,8 @@ begin
                      file_open(f_status, outfile, filename_current, write_mode);
                      file_close(outfile);
                      file_open(f_status, outfile, filename_current, append_mode);
+                     write(line_out, string'("reg 00   reg 01   reg 02   reg 03   reg 04   reg 05   reg 06   reg 07   reg 08   reg 09   reg 10   reg 11   reg 12   reg 13   reg 14   reg 15   opcode   NCZV newticks PF  T Md I IFin T Timer0   Timer1   Timer2   Timer3   MEMORY01 MEMORY02 MEMORY03 DMATrans Reg 16   Reg 17   R13usr   R14usr   R13irq   R14irq   R13svc   R14svc   SPSR_irq SPSR_svc "));
+                     writeline(outfile, line_out);
                   end if;
                   
                   if (recordcount > 1000) then

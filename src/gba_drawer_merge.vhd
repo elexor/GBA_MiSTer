@@ -92,8 +92,8 @@ architecture arch of gba_drawer_merge is
    signal inwin_0y      : std_logic := '0';
    signal inwin_1y      : std_logic := '0';
    
-   signal first_target  : std_logic_vector(4 downto 0) := (others => '0');
-   signal second_target : std_logic_vector(4 downto 0) := (others => '0');
+   signal first_target  : std_logic_vector(5 downto 0) := (others => '0');
+   signal second_target : std_logic_vector(5 downto 0) := (others => '0');
    
    -- ####################################
    -- #### clock cycle one
@@ -107,7 +107,7 @@ architecture arch of gba_drawer_merge is
    signal pixeldata_bg3_cycle1  : std_logic_vector(15 downto 0) := (others => '0');
    signal pixeldata_obj_cycle1  : std_logic_vector(18 downto 0) := (others => '0');
    -- new  
-   signal enables_cycle1        : std_logic_vector(4 downto 0) := (others => '0');
+   signal enables_cycle1        : std_logic_vector(5 downto 0) := (others => '0');
    signal special_enable_cycle1 : std_logic;
 
    -- ####################################
@@ -121,10 +121,10 @@ architecture arch of gba_drawer_merge is
    signal pixeldata_bg2_cycle2    : std_logic_vector(15 downto 0) := (others => '0');
    signal pixeldata_bg3_cycle2    : std_logic_vector(15 downto 0) := (others => '0');
    signal pixeldata_obj_cycle2    : std_logic_vector(18 downto 0) := (others => '0');  
-   signal enables_cycle2          : std_logic_vector(4 downto 0) := (others => '0');
+   signal enables_cycle2          : std_logic_vector(5 downto 0) := (others => '0');
    signal special_enable_cycle2   : std_logic;
    -- new
-   signal topprio_cycle2          : std_logic_vector(4 downto 0) := (others => '0');
+   signal topprio_cycle2          : std_logic_vector(5 downto 0) := (others => '0');
    
    -- ####################################
    -- #### clock cycle three
@@ -137,11 +137,11 @@ architecture arch of gba_drawer_merge is
    signal pixeldata_bg2_cycle3    : std_logic_vector(15 downto 0) := (others => '0');
    signal pixeldata_bg3_cycle3    : std_logic_vector(15 downto 0) := (others => '0');
    signal pixeldata_obj_cycle3    : std_logic_vector(18 downto 0) := (others => '0');  
-   signal topprio_cycle3          : std_logic_vector(4 downto 0) := (others => '0');
+   signal topprio_cycle3          : std_logic_vector(5 downto 0) := (others => '0');
    signal special_enable_cycle3   : std_logic;
    -- new
-   signal firstprio_cycle3        : std_logic_vector(4 downto 0) := (others => '0');
-   signal secondprio_cycle3       : std_logic_vector(4 downto 0) := (others => '0');
+   signal firstprio_cycle3        : std_logic_vector(5 downto 0) := (others => '0');
+   signal secondprio_cycle3       : std_logic_vector(5 downto 0) := (others => '0');
    signal firstpixel_cycle3       : std_logic_vector(14 downto 0) := (others => '0');
    
    -- ####################################
@@ -155,7 +155,7 @@ architecture arch of gba_drawer_merge is
    signal pixeldata_bg2_cycle4    : std_logic_vector(15 downto 0) := (others => '0');
    signal pixeldata_bg3_cycle4    : std_logic_vector(15 downto 0) := (others => '0');
    signal pixeldata_obj_cycle4    : std_logic_vector(18 downto 0) := (others => '0');  
-   signal topprio_cycle4          : std_logic_vector(4 downto 0);
+   signal topprio_cycle4          : std_logic_vector(5 downto 0);
    -- new
    signal special_effect_cycle4   : unsigned(1 downto 0) := (others => '0');
    signal special_out_cycle4      : std_logic;
@@ -174,8 +174,8 @@ begin
    -- ####################################
    -- #### pipeline independent
    -- ####################################
-   first_target  <= effect_1st_obj & effect_1st_bg3 & effect_1st_bg2 & effect_1st_bg1 & effect_1st_bg0;
-   second_target <= effect_2nd_obj & effect_2nd_bg3 & effect_2nd_bg2 & effect_2nd_bg1 & effect_2nd_bg0;
+   first_target  <= effect_1st_BD & effect_1st_obj & effect_1st_bg3 & effect_1st_bg2 & effect_1st_bg1 & effect_1st_bg0;
+   second_target <= effect_2nd_BD & effect_2nd_obj & effect_2nd_bg3 & effect_2nd_bg2 & effect_2nd_bg1 & effect_2nd_bg0;
    
    process (clk100)
    begin
@@ -232,10 +232,10 @@ begin
          -- window select
          special_enable_cycle1 <= '1';
          if (anywindow = '1') then
-             if (inwin_0y = '1' and ((WND0_X1 <= WND0_X2 and xpos_cycle1 >= WND0_X1 and xpos_cycle1 < WND0_X2) or (WND0_X1 > WND0_X2 and (xpos_cycle1 >= WND0_X1 or xpos_cycle1 < WND0_X2)))) then
+             if (inwin_0y = '1' and ((WND0_X1 <= WND0_X2 and xpos >= WND0_X1 and xpos < WND0_X2) or (WND0_X1 > WND0_X2 and (xpos >= WND0_X1 or xpos < WND0_X2)))) then
                special_enable_cycle1 <= enables_wnd0(5);
                enables_var           := enables_var and enables_wnd0(4 downto 0);
-            elsif (inwin_1y = '1' and ((WND1_X1 <= WND1_X2 and xpos_cycle1 >= WND1_X1 and xpos_cycle1 < WND1_X2) or (WND1_X1 > WND1_X2 and (xpos_cycle1 >= WND1_X1 or xpos_cycle1 < WND1_X2)))) then
+            elsif (inwin_1y = '1' and ((WND1_X1 <= WND1_X2 and xpos >= WND1_X1 and xpos < WND1_X2) or (WND1_X1 > WND1_X2 and (xpos >= WND1_X1 or xpos < WND1_X2)))) then
                special_enable_cycle1  <= enables_wnd1(5);
                enables_var            := enables_var and enables_wnd1(4 downto 0);
             elsif (objwindow_in = '1') then
@@ -246,7 +246,7 @@ begin
                enables_var           := enables_var and enables_wndout(4 downto 0);
             end if;
          end if;
-         enables_cycle1 <= enables_var;
+         enables_cycle1 <= '1' & enables_var; -- backdrop is always on
       
       end if;
    end process;
@@ -255,7 +255,7 @@ begin
    -- #### clock cycle one
    -- ####################################
    process (clk100)
-      variable topprio_var : std_logic_vector(4 downto 0);
+      variable topprio_var : std_logic_vector(5 downto 0);
    begin
       if rising_edge(clk100) then
 
@@ -285,12 +285,12 @@ begin
          if (topprio_var(BG1) = '1' and topprio_var(BG3) = '1' and Prio_BG1 > Prio_BG3) then topprio_var(BG1) := '0'; end if;
          if (topprio_var(BG2) = '1' and topprio_var(BG3) = '1' and Prio_BG2 > Prio_BG3) then topprio_var(BG2) := '0'; end if;
             
-         if    (topprio_var(OBJ) = '1') then topprio_var := "10000";
-         elsif (topprio_var(BG0) = '1') then topprio_var := "00001";
-         elsif (topprio_var(BG1) = '1') then topprio_var := "00010";
-         elsif (topprio_var(BG2) = '1') then topprio_var := "00100";
-         elsif (topprio_var(BG3) = '1') then topprio_var := "01000";
-         else                                topprio_var := "00000"; end if;
+         if    (topprio_var(OBJ) = '1') then topprio_var := "010000";
+         elsif (topprio_var(BG0) = '1') then topprio_var := "000001";
+         elsif (topprio_var(BG1) = '1') then topprio_var := "000010";
+         elsif (topprio_var(BG2) = '1') then topprio_var := "000100";
+         elsif (topprio_var(BG3) = '1') then topprio_var := "001000";
+         else                                topprio_var := "100000"; end if;
 
          topprio_cycle2 <= topprio_var;
 
@@ -303,8 +303,8 @@ begin
    -- #### clock cycle two
    -- ####################################
    process (clk100)
-      variable firstprio_var  : std_logic_vector(4 downto 0);
-      variable secondprio_var : std_logic_vector(4 downto 0);
+      variable firstprio_var  : std_logic_vector(5 downto 0);
+      variable secondprio_var : std_logic_vector(5 downto 0);
    begin
       if rising_edge(clk100) then
          
@@ -328,22 +328,22 @@ begin
          
          firstprio_cycle3 <= firstprio_var;
          
-         secondprio_var := enables_cycle2 and second_target;
-         secondprio_var := secondprio_var and (not firstprio_var);
          
-         if (secondprio_var(BG0) = '1' and secondprio_var(OBJ) = '1' and unsigned(pixeldata_obj_cycle2(OBJPRIOH downto OBJPRIOL)) > Prio_BG0) then secondprio_var(OBJ) := '0'; end if;
-         if (secondprio_var(BG1) = '1' and secondprio_var(OBJ) = '1' and unsigned(pixeldata_obj_cycle2(OBJPRIOH downto OBJPRIOL)) > Prio_BG1) then secondprio_var(OBJ) := '0'; end if;
-         if (secondprio_var(BG2) = '1' and secondprio_var(OBJ) = '1' and unsigned(pixeldata_obj_cycle2(OBJPRIOH downto OBJPRIOL)) > Prio_BG2) then secondprio_var(OBJ) := '0'; end if;
-         if (secondprio_var(BG3) = '1' and secondprio_var(OBJ) = '1' and unsigned(pixeldata_obj_cycle2(OBJPRIOH downto OBJPRIOL)) > Prio_BG3) then secondprio_var(OBJ) := '0'; end if;
+         secondprio_var := enables_cycle2 and (not firstprio_var);
          
-         if (secondprio_var(BG0) = '1' and secondprio_var(BG1) = '1' and Prio_BG0 > Prio_BG1) then secondprio_var(BG0) := '0'; end if;
-         if (secondprio_var(BG0) = '1' and secondprio_var(BG2) = '1' and Prio_BG0 > Prio_BG2) then secondprio_var(BG0) := '0'; end if;
-         if (secondprio_var(BG0) = '1' and secondprio_var(BG3) = '1' and Prio_BG0 > Prio_BG3) then secondprio_var(BG0) := '0'; end if;
-         if (secondprio_var(BG1) = '1' and secondprio_var(BG2) = '1' and Prio_BG1 > Prio_BG2) then secondprio_var(BG1) := '0'; end if;
-         if (secondprio_var(BG1) = '1' and secondprio_var(BG3) = '1' and Prio_BG1 > Prio_BG3) then secondprio_var(BG1) := '0'; end if;
-         if (secondprio_var(BG2) = '1' and secondprio_var(BG3) = '1' and Prio_BG2 > Prio_BG3) then secondprio_var(BG2) := '0'; end if;
+         if (secondprio_var(BG0) = '1' and secondprio_var(OBJ) = '1') then if (unsigned(pixeldata_obj_cycle2(OBJPRIOH downto OBJPRIOL)) > Prio_BG0) then secondprio_var(OBJ) := '0'; else secondprio_var(BG0) := '0'; end if; end if;
+         if (secondprio_var(BG1) = '1' and secondprio_var(OBJ) = '1') then if (unsigned(pixeldata_obj_cycle2(OBJPRIOH downto OBJPRIOL)) > Prio_BG1) then secondprio_var(OBJ) := '0'; else secondprio_var(BG1) := '0'; end if; end if;
+         if (secondprio_var(BG2) = '1' and secondprio_var(OBJ) = '1') then if (unsigned(pixeldata_obj_cycle2(OBJPRIOH downto OBJPRIOL)) > Prio_BG2) then secondprio_var(OBJ) := '0'; else secondprio_var(BG2) := '0'; end if; end if;
+         if (secondprio_var(BG3) = '1' and secondprio_var(OBJ) = '1') then if (unsigned(pixeldata_obj_cycle2(OBJPRIOH downto OBJPRIOL)) > Prio_BG3) then secondprio_var(OBJ) := '0'; else secondprio_var(BG3) := '0'; end if; end if;
+         
+         if (secondprio_var(BG0) = '1' and secondprio_var(BG1) = '1') then if (Prio_BG0 > Prio_BG1) then secondprio_var(BG0) := '0'; else secondprio_var(BG1) := '0'; end if; end if;
+         if (secondprio_var(BG0) = '1' and secondprio_var(BG2) = '1') then if (Prio_BG0 > Prio_BG2) then secondprio_var(BG0) := '0'; else secondprio_var(BG2) := '0'; end if; end if;
+         if (secondprio_var(BG0) = '1' and secondprio_var(BG3) = '1') then if (Prio_BG0 > Prio_BG3) then secondprio_var(BG0) := '0'; else secondprio_var(BG3) := '0'; end if; end if;
+         if (secondprio_var(BG1) = '1' and secondprio_var(BG2) = '1') then if (Prio_BG1 > Prio_BG2) then secondprio_var(BG1) := '0'; else secondprio_var(BG2) := '0'; end if; end if;
+         if (secondprio_var(BG1) = '1' and secondprio_var(BG3) = '1') then if (Prio_BG1 > Prio_BG3) then secondprio_var(BG1) := '0'; else secondprio_var(BG3) := '0'; end if; end if;
+         if (secondprio_var(BG2) = '1' and secondprio_var(BG3) = '1') then if (Prio_BG2 > Prio_BG3) then secondprio_var(BG2) := '0'; else secondprio_var(BG3) := '0'; end if; end if;
             
-         secondprio_cycle3 <= secondprio_var;
+         secondprio_cycle3 <= secondprio_var and second_target;
          
          -- special effect data
          firstpixel_cycle3 <= (others => '0');
@@ -351,7 +351,8 @@ begin
          elsif (firstprio_var(BG0) = '1')  then firstpixel_cycle3 <= pixeldata_bg0_cycle2(14 downto 0);
          elsif (firstprio_var(BG1) = '1')  then firstpixel_cycle3 <= pixeldata_bg1_cycle2(14 downto 0);
          elsif (firstprio_var(BG2) = '1')  then firstpixel_cycle3 <= pixeldata_bg2_cycle2(14 downto 0);
-         elsif (firstprio_var(BG3) = '1')  then firstpixel_cycle3 <= pixeldata_bg3_cycle2(14 downto 0); end if;
+         elsif (firstprio_var(BG3) = '1')  then firstpixel_cycle3 <= pixeldata_bg3_cycle2(14 downto 0); 
+         else                                   firstpixel_cycle3 <= pixeldata_back(14 downto 0); end if;
       
       end if;
    end process;
@@ -384,9 +385,9 @@ begin
       
          if ((special_enable_cycle3 = '1' and special_effect_in > 0) or pixeldata_obj_cycle3(OBJALPHA) = '1') then
       
-            if (firstprio_cycle3 /= "00000") then
+            if (firstprio_cycle3 /= "000000") then
             
-               if (pixeldata_obj_cycle3(OBJALPHA) = '1' and firstprio_cycle3 = "10000") then
+               if (pixeldata_obj_cycle3(OBJALPHA) = '1' and firstprio_cycle3(4 downto 0) = "10000") then
                   special_effect_var := "01";
                end if;
             
@@ -406,7 +407,7 @@ begin
                   elsif (secondprio_cycle3(BG2) = '1') then prio2 := Prio_BG2;
                   elsif (secondprio_cycle3(BG3) = '1') then prio2 := Prio_BG3; end if;                  
                
-                  if (secondprio_cycle3 /= "00000" and prio2 >= prio1) then
+                  if (secondprio_cycle3(4 downto 0) /= "00000" and prio2 >= prio1) then
                      special_out_cycle4  <= '1';
                   end if;
                
