@@ -18,6 +18,8 @@ entity gba_gpu_drawer is
       
       gb_bus               : inout proc_bus_gb_type := ((others => 'Z'), (others => 'Z'), (others => 'Z'), 'Z', 'Z', 'Z', "ZZ", "ZZZZ", 'Z');                  
         
+      pixel_out_x          : out   integer range 0 to 239;
+      pixel_out_y          : out   integer range 0 to 159;
       pixel_out_addr       : out   integer range 0 to 38399;
       pixel_out_data       : out   std_logic_vector(14 downto 0);  
       pixel_out_we         : out   std_logic := '0';
@@ -1217,12 +1219,15 @@ begin
                if (draw_allmod /= x"00") then
                   drawstate <= DRAWING;
                else
-                  drawstate <= IDLE;
+                  drawstate        <= MERGING;
+                  linebuffer_addr  <= 0;
+                  merge_enable     <= '1';
+                  clear_trigger    <= '1';
                end if;
 
             when DRAWING =>
                if (busy_allmod = x"00") then
-                  drawstate     <= MERGING;
+                  drawstate        <= MERGING;
                   linebuffer_addr  <= 0;
                   merge_enable     <= '1';
                   clear_trigger    <= '1';
@@ -1243,6 +1248,8 @@ begin
          
          objwindow_merge_in <= linebuffer_objwindow(linebuffer_addr);
       
+         pixel_out_x           <= merge_pixel_x;
+         pixel_out_y           <= merge_pixel_y;
          pixelout_addr         <= merge_pixel_x + merge_pixel_y * 240;
          merge_pixel_we_1      <= merge_pixel_we;
          
