@@ -500,7 +500,6 @@ wire llapi_osd = (llapi_buttons[26] && llapi_buttons[5] && llapi_buttons[0]) || 
 
 wire [11:0] joy = joy_usb | joy_ll_a | joy_ll_b;
 
-=======
 ////////////////////////////  QUIRKS  //////////////////////////////////
 
 reg sram_quirk = 0;
