@@ -162,40 +162,49 @@ wire reset = RESET | buttons[1] | status[0] | cart_download | bk_loading | hold_
 // 0         1         2         3
 // 01234567890123456789012345678901
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV
-// XXXXXXXXXXXXXXXXX      X
+// XXXXXX XXXXXXXXXXXX    X
 
 `include "build_id.v"
 parameter CONF_STR = {
-    "GBA;;",
-    "FS,GBA;",
-    "-;",
-    //"C,Cheats;",
-    //"H1O6,Cheats Enabled,Yes,No;",
-    //"-;",
-    "D0RC,Reload Backup RAM;",
-    "D0RD,Save Backup RAM;",
-    "D0ON,Autosave,Off,On;",
-    "D0-;",
-    "O1,Aspect Ratio,3:2,16:9;",
-    "O9A,Desaturate,Off,Level 1,Level 2,Level 3;",
-    "OB,Sync core to video,Off,On;",
-    "O24,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
-    "O78,Stereo Mix,None,25%,50%,100%;", 
-    "-;",
-    "OM,Serial Mode,Off,LLAPI;",
-    "-;",
-    "OEF,Storage,Auto,SDRAM,DDR3;",
-    "O5,Pause,Off,On;",
-    "H2OG,Turbo,Off,On;",
-    "R0,Reset;",
-    "J1,A,B,L,R,Select,Start,FastForward;",
-    "jn,A,B,L,R,Select,Start,X;",
-    "V,v",`BUILD_DATE
+	"GBA;;",
+	"FS,GBA;",
+	"-;",
+	"D0RC,Reload Backup RAM;",
+	"D0RD,Save Backup RAM;",
+	"D0ON,Autosave,Off,On;",
+	"D0-;",
+	"h4H3RH,Save state (Alt-F1);",
+	"h4H3RI,Restore state (F1);",
+	"h4H3-;",
+	"O1,Aspect Ratio,3:2,16:9;",
+	"O9A,Desaturate,Off,Level 1,Level 2,Level 3;",
+	"OB,Sync core to video,Off,On;",
+	"O24,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
+	"O78,Stereo Mix,None,25%,50%,100%;", 
+	"-;",
+	"OM,Serial Mode,Off,LLAPI;",
+	"OEF,Storage,Auto,SDRAM,DDR3;",
+	"O5,Pause,Off,On;",
+   "OJ,Flickerblend,Off,On;",
+	"H2OG,Turbo,Off,On;",
+	"R0,Reset;",
+	"J1,A,B,L,R,Select,Start,FastForward;",
+	"jn,A,B,L,R,Select,Start,X;",
+	"I,",
+	"Save to state 1,",
+	"Restore state 1,",
+	"Save to state 2,",
+	"Restore state 2,",
+	"Save to state 3,",
+	"Restore state 3,",
+	"Save to state 4,",
+	"Restore state 4;",
+	"V,v",`BUILD_DATE
 };
 
 wire  [1:0] buttons;
 wire [31:0] status;
-wire [15:0] status_menumask = {force_turbo, ~gg_available, ~bk_ena};
+wire [15:0] status_menumask = {cart_loaded, |cart_type, force_turbo, 1'b0, ~bk_ena};
 wire        forced_scandoubler;
 reg  [31:0] sd_lba;
 reg         sd_rd = 0;
@@ -213,10 +222,11 @@ wire [26:0] ioctl_addr;
 wire [15:0] ioctl_dout;
 wire        ioctl_wr;
 wire  [7:0] ioctl_index;
+reg         ioctl_wait = 0;
 
 wire [11:0] joy_usb;
+wire [10:0] ps2_key;
 wire [21:0] gamma_bus;
-reg         ioctl_wait = 0;
 
 wire [15:0] sdram_sz;
 
@@ -230,9 +240,12 @@ hps_io #(.STRLEN($size(CONF_STR)>>3), .WIDE(1)) hps_io
 	.forced_scandoubler(forced_scandoubler),
 
 	.joystick_0(joy_usb),
+	.ps2_key(ps2_key),
 
 	.status(status),
 	.status_menumask(status_menumask),
+	.info_req(ss_info_req),
+	.info(ss_info),
 
 	.ioctl_addr(ioctl_addr),
 	.ioctl_dout(ioctl_dout),
@@ -270,6 +283,7 @@ end
 reg [26:0] last_addr;
 reg        flash_1m;
 reg  [1:0] cart_type;
+reg        cart_loaded = 0;
 always @(posedge clk_sys) begin
 	reg [63:0] str;
 	reg old_download;
@@ -280,6 +294,7 @@ always @(posedge clk_sys) begin
 	if(~old_download & cart_download) begin
 		flash_1m <= 0;
 		cart_type <= ioctl_index[7:6];
+		cart_loaded <= 1;
 	end
 
 	if(cart_download & ioctl_wr) begin
@@ -307,14 +322,75 @@ always @(posedge clk_sys) begin
 	end
 end
 
+///////////////////////////  SAVESTATE  /////////////////////////////////
+
+wire       pressed = ps2_key[9];
+wire [7:0] code    = ps2_key[7:0];
+
+reg [1:0] ss_base = 0;
+reg [7:0] ss_info;
+reg ss_save, ss_load, ss_info_req;
+always @(posedge clk_sys) begin
+	reg old_state;
+	reg alt = 0;
+	reg [1:0] old_st;
+
+	old_state <= ps2_key[10];
+
+	if(cart_loaded & !cart_type) begin
+		if(old_state != ps2_key[10]) begin
+			case(code)
+				'h11: alt <= pressed;
+				'h05: begin ss_save <= pressed & alt; ss_load <= pressed & ~alt; ss_base <= 0; end // F1
+				'h06: begin ss_save <= pressed & alt; ss_load <= pressed & ~alt; ss_base <= 1; end // F2
+				'h04: begin ss_save <= pressed & alt; ss_load <= pressed & ~alt; ss_base <= 2; end // F3
+				'h0C: begin ss_save <= pressed & alt; ss_load <= pressed & ~alt; ss_base <= 3; end // F4
+			endcase
+		end
+		
+		old_st <= status[18:17];
+		if(old_st[0] ^ status[17]) ss_save <= status[17];
+		if(old_st[1] ^ status[18]) ss_load <= status[18];
+
+		if(status[18:17]) ss_base <= 0;
+
+		ss_info <= 7'd1 + {ss_base, ss_load};
+		ss_info_req <= (ss_load | ss_save);
+	end
+end
+
 ////////////////////////////  SYSTEM  ///////////////////////////////////
 
 wire        save_eeprom, save_sram, save_flash;
-wire [31:0] cpu_addr, cpu_frombus;
 
 reg fast_forward, pause, cpu_turbo;
-always @(posedge clk_sys) begin
-	fast_forward <= joy[10] & ~force_turbo;
+reg ff_latch;
+
+always @(posedge clk_sys) begin : ffwd
+	reg last_ffw;
+	reg ff_was_held;
+	longint ff_count;
+
+	last_ffw <= joy[10];
+
+	if (joy[10])
+		ff_count <= ff_count + 1;
+
+	if (~last_ffw & joy[10]) begin
+		ff_latch <= 0;
+		ff_count <= 0;
+	end
+
+	if ((last_ffw & ~joy[10])) begin // 100mhz clock, 0.2 seconds
+		ff_was_held <= 0;
+
+		if (ff_count < 10000000 && ~ff_was_held) begin
+			ff_was_held <= 1;
+			ff_latch <= 1;
+		end
+	end
+
+	fast_forward <= (joy[10] | ff_latch) & ~force_turbo;
 	pause <= force_pause | status[5];
 	cpu_turbo <= ((status[16] & ~fast_forward) | force_turbo) & ~pause;
 end
@@ -322,11 +398,12 @@ end
 gba_top
 #(
    // assume: cart may have either flash or eeprom, not both! (need to verify)
-	.Softmap_GBA_FLASH_ADDR  (0),           // 131072 (8bit)  -- 128 Kbyte Data for GBA Flash
-	.Softmap_GBA_EEPROM_ADDR (0),           //   8192 (8bit)  --   8 Kbyte Data for GBA EEProm
-	.Softmap_GBA_WRam_ADDR   (131072),      //  65536 (32bit) -- 256 Kbyte Data for GBA WRam Large
-	.Softmap_GBA_Gamerom_ADDR(65536+131072), //   32MB of ROM
-	.turbosound('1)								  // sound buffer to play sound in turbo mode without sound pitched up
+	.Softmap_GBA_FLASH_ADDR  (0),                   // 131072 (8bit)  -- 128 Kbyte Data for GBA Flash
+	.Softmap_GBA_EEPROM_ADDR (0),                   //   8192 (8bit)  --   8 Kbyte Data for GBA EEProm
+	.Softmap_GBA_WRam_ADDR   (131072),              //  65536 (32bit) -- 256 Kbyte Data for GBA WRam Large
+	.Softmap_GBA_Gamerom_ADDR(65536+131072),        //   32MB of ROM
+	.Softmap_SaveState_ADDR  (0),                   // 262144 (32bit) -- ~1Mbyte Data for SaveState (separate memory)
+	.turbosound('1)                                 // sound buffer to play sound in turbo mode without sound pitched up
 )
 gba
 (
@@ -341,6 +418,9 @@ gba
 	.CyclesVsyncSpeed(),              // debug only for speed measurement, keep open
 	.SramFlashEnable(~sram_quirk),
 	.memory_remap(memory_remap_quirk),
+   .save_state(ss_save),
+   .load_state(ss_load),
+   .interframe_blend(status[19]),
 
 	.sdram_read_ena(sdram_req),       // triggered once for read request 
 	.sdram_read_done(sdram_ack),      // must be triggered once when sdram_read_data is valid after last read
@@ -355,6 +435,13 @@ gba
 	.bus_out_ena(bus_req),            // one cycle high for each action
 	.bus_out_done(bus_ack),           // should be one cycle high when write is done or read value is valid
 
+   .SAVE_out_Din(ss_din),            // data read from savestate
+   .SAVE_out_Dout(ss_dout),          // data written to savestate
+   .SAVE_out_Adr(ss_addr),           // all addresses are DWORD addresses!
+   .SAVE_out_rnw(ss_rnw),            // read = 1, write = 0
+   .SAVE_out_ena(ss_req),            // one cycle high for each action
+   .SAVE_out_done(ss_ack),           // should be one cycle high when write is done or read value is valid
+
 	.save_eeprom(save_eeprom),
 	.save_sram(save_sram),
 	.save_flash(save_flash),
@@ -362,10 +449,6 @@ gba
 	.bios_wraddr(bios_wraddr),
 	.bios_wrdata(bios_wrdata),
 	.bios_wr(bios_wr),
-
-	.cpu_addr(cpu_addr),
-	.cpu_din(genie_ovr ? genie_data : cpu_frombus),
-	.cpu_frombus(cpu_frombus),
 
 	.KeyA(joy[4]),
 	.KeyB(joy[5]),
@@ -385,6 +468,50 @@ gba
 	.sound_out_left(AUDIO_L),
 	.sound_out_right(AUDIO_R)
 );
+
+////////////////////////////  QUIRKS  //////////////////////////////////
+
+reg sram_quirk = 0;
+reg memory_remap_quirk = 0;
+always @(posedge clk_sys) begin
+	reg [95:0] cart_id;
+	reg old_download;
+	old_download <= cart_download;
+
+	if(~old_download && cart_download) begin
+      sram_quirk         <= 0;
+      memory_remap_quirk <= 0;
+   end
+
+	// TODO: better to use game ID (fixed 6 bytes after name of game) - less data to check.
+	if(ioctl_wr & cart_download) begin
+		if(ioctl_addr[26:4] == 'hA) begin
+			if(ioctl_addr[3:0] <  12) cart_id[{4'd10 - ioctl_addr[3:0], 3'd0} +:16] <= {ioctl_dout[7:0],ioctl_dout[15:8]};
+			if(ioctl_addr[3:0] == 12) begin
+				if(cart_id == {"ROCKY BOXING"} )              begin sram_quirk <= 1;                          end // Rocky US
+				if(cart_id == {"ROCKY", 56'h00000000000000} ) begin sram_quirk <= 1;                          end // Rocky EU
+				if(cart_id == {"DBZ LGCYGOKU"} )              begin sram_quirk <= 1;                          end // Dragon Ball Z - The Legacy of Goku US
+				if(cart_id == {"DRAGONBALL Z"} )              begin sram_quirk <= 1;                          end // Dragon Ball Z - The Legacy of Goku EU
+				if(cart_id == {"DBZ TAIKETSU"} )              begin sram_quirk <= 1;                          end // Dragon Ball Z - Taiketsu US
+				if(cart_id == {"DRAGON BALLZ"} )              begin sram_quirk <= 1;                          end // Dragon Ball Z - Taiketsu EU
+				if(cart_id == {"TOPGUN CZ", 24'h000000} )     begin sram_quirk <= 1;                          end // Top Gun - Combat Zones
+				if(cart_id == {"IRIDIONII", 24'h000000} )     begin sram_quirk <= 1;                          end // Iridion II EU and US
+				if(cart_id == {"BOMBER MAN", 16'h0000} )      begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series Bomberman
+				if(cart_id == {"CASTLEVANIA", 8'h00} )        begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series Castlevania
+				if(cart_id == {"DONKEY KONG", 8'h00} )        begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series Donkey Kong
+				if(cart_id == {"DR. MARIO", 24'h000000} )     begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series DR. MARIO
+				if(cart_id == {"EXCITEBIKE", 16'h0000} )      begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series EXCITEBIKE
+				if(cart_id == {"ICE CLIMBER", 8'h00} )        begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series ICE CLIMBER
+				if(cart_id == {"NES METROID", 8'h00} )        begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series NES METROID
+				if(cart_id == {"PAC-MAN", 40'h0000000000} )   begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series PAC-MAN
+				if(cart_id == {"SUPER MARIO", 8'h00} )        begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series SUPER MARIO Bros
+				if(cart_id == {"ZELDA 1", 40'h0000000000} )   begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series The Legend of Zelda
+				if(cart_id == {"XEVIOUS", 40'h0000000000} )   begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series XEVIOUS
+				if(cart_id == {"NES ZELDA 2", 8'h00} )        begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series Zelda II - The Adventure of Link
+			end
+		end
+	end
+end
 
 ////////////////////////////  LLAPI  ///////////////////////////////////
 
@@ -500,96 +627,6 @@ wire llapi_osd = (llapi_buttons[26] && llapi_buttons[5] && llapi_buttons[0]) || 
 
 wire [11:0] joy = joy_usb | joy_ll_a | joy_ll_b;
 
-////////////////////////////  QUIRKS  //////////////////////////////////
-
-reg sram_quirk = 0;
-reg memory_remap_quirk = 0;
-always @(posedge clk_sys) begin
-	reg [95:0] cart_id;
-	reg old_download;
-	old_download <= cart_download;
-
-	if(~old_download && cart_download) begin
-      sram_quirk         <= 0;
-      memory_remap_quirk <= 0;
-   end
-
-	if(ioctl_wr & cart_download) begin
-		if(ioctl_addr[26:4] == 'hA) begin
-			if(ioctl_addr[3:0] <  12) cart_id[{4'd10 - ioctl_addr[3:0], 3'd0} +:16] <= {ioctl_dout[7:0],ioctl_dout[15:8]};
-			if(ioctl_addr[3:0] == 12) begin
-				if(cart_id == {"ROCKY BOXING"} )              begin sram_quirk <= 1;                          end // Rocky US
-				if(cart_id == {"ROCKY", 56'h00000000000000} ) begin sram_quirk <= 1;                          end // Rocky EU
-				if(cart_id == {"DBZ LGCYGOKU"} )              begin sram_quirk <= 1;                          end // Dragon Ball Z - The Legacy of Goku US
-				if(cart_id == {"DRAGONBALL Z"} )              begin sram_quirk <= 1;                          end // Dragon Ball Z - The Legacy of Goku EU
-				if(cart_id == {"DBZ TAIKETSU"} )              begin sram_quirk <= 1;                          end // Dragon Ball Z - Taiketsu US
-				if(cart_id == {"DRAGON BALLZ"} )              begin sram_quirk <= 1;                          end // Dragon Ball Z - Taiketsu EU
-				if(cart_id == {"TOPGUN CZ", 24'h000000} )     begin sram_quirk <= 1;                          end // Top Gun - Combat Zones
-				if(cart_id == {"IRIDIONII", 24'h000000} )     begin sram_quirk <= 1;                          end // Iridion II EU and US
-				if(cart_id == {"BOMBER MAN", 16'h0000} )      begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series Bomberman
-				if(cart_id == {"CASTLEVANIA", 8'h00} )        begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series Castlevania
-				if(cart_id == {"DONKEY KONG", 8'h00} )        begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series Donkey Kong
-				if(cart_id == {"DR. MARIO", 24'h000000} )     begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series DR. MARIO
-				if(cart_id == {"EXCITEBIKE", 16'h0000} )      begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series EXCITEBIKE
-				if(cart_id == {"ICE CLIMBER", 8'h00} )        begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series ICE CLIMBER
-				if(cart_id == {"NES METROID", 8'h00} )        begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series NES METROID
-				if(cart_id == {"PAC-MAN", 40'h0000000000} )   begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series PAC-MAN
-				if(cart_id == {"SUPER MARIO", 8'h00} )        begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series SUPER MARIO Bros
-				if(cart_id == {"ZELDA 1", 40'h0000000000} )   begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series The Legend of Zelda
-				if(cart_id == {"XEVIOUS", 40'h0000000000} )   begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series XEVIOUS
-				if(cart_id == {"NES ZELDA 2", 8'h00} )        begin sram_quirk <= 1; memory_remap_quirk <= 1; end // Classic NES Series Zelda II - The Adventure of Link
-			end
-		end
-	end
-end
-
-////////////////////////////  CODES  ///////////////////////////////////
-
-wire        gg_available;
-wire        genie_ovr;
-wire [31:0] genie_data;
-
-/*
-// Code layout:
-// {clock bit, code flags,     32'b address, 32'b compare, 32'b replace}
-//  128        127:96          95:64         63:32         31:0
-// Integer values are in BIG endian byte order, so it up to the loader
-// or generator of the code to re-arrange them correctly.
-
-reg [128:0] gg_code;
-always_ff @(posedge clk_sys) begin
-	gg_code[128] <= 0;
-
-	if (code_download & ioctl_wr) begin
-		case (ioctl_addr[3:0])
-			0:  gg_code[111:96]  <= ioctl_dout; // Flags Bottom Word
-			2:  gg_code[127:112] <= ioctl_dout; // Flags Top Word
-			4:  gg_code[79:64]   <= ioctl_dout; // Address Bottom Word
-			6:  gg_code[95:80]   <= ioctl_dout; // Address Top Word
-			8:  gg_code[47:32]   <= ioctl_dout; // Compare Bottom Word
-			10: gg_code[63:48]   <= ioctl_dout; // Compare top Word
-			12: gg_code[15:0]    <= ioctl_dout; // Replace Bottom Word
-			14: begin
-				gg_code[31:16]    <= ioctl_dout; // Replace Top Word
-				gg_code[128]      <= 1;          // Clock it in
-			end
-		endcase
-	end
-end
-
-CODES #(.ADDR_WIDTH(32), .DATA_WIDTH(32)) codes (
-	.clk(clk_sys),
-	.reset(code_download && ioctl_wr && !ioctl_addr),
-	.enable(~status[6]),
-	.addr_in(cpu_addr),
-	.data_in(cpu_frombus),
-	.code(gg_code),
-	.available(gg_available),
-	.genie_ovr(genie_ovr),
-	.genie_data(genie_data)
-);
-*/
-
 ////////////////////////////  MEMORY  ///////////////////////////////////
 
 localparam ROM_START = (65536+131072)*4;
@@ -654,6 +691,10 @@ wire [31:0] ddr_sdram_dout1, ddr_sdram_dout2, ddr_bus_dout;
 wire [15:0] ddr_bram_din;
 wire        ddr_sdram_ack, ddr_bus_ack, ddr_bram_ack;
 
+wire [31:0] ss_dout, ss_din;
+wire [19:2] ss_addr;
+wire        ss_rnw, ss_req, ss_ack;
+
 assign DDRAM_CLK = clk_sys;
 ddram ddram
 (
@@ -678,7 +719,14 @@ ddram ddram
 	.ch3_dout(ddr_bram_din),
 	.ch3_req(bram_req & ~sdram_en),
 	.ch3_rnw(~bk_loading),
-	.ch3_ready(ddr_bram_ack)
+	.ch3_ready(ddr_bram_ack),
+	
+	.ch4_addr({ss_base, ss_addr, 1'b0}),
+	.ch4_din(ss_din),
+	.ch4_dout(ss_dout),
+	.ch4_req(ss_req),
+	.ch4_rnw(ss_rnw),
+	.ch4_ready(ss_ack)
 );
 
 wire [15:0] bram_dout;

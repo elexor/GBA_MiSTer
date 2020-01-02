@@ -16,7 +16,6 @@ PLEASE do not report errors without testing with the original BIOS
 
 # Games with crashes/hang
 - Banjo-Kazooie hangs after start. Workaround: instantly save ingame, reset the game and reload the save
-- Bomberman Max 2 - Blue: black screen after intro
 
 - Colin McRae Rally 2.0 hangs when going into race
 
@@ -24,9 +23,7 @@ PLEASE do not report errors without testing with the original BIOS
 
 - Fear Factor Unleashed: hang after ~4 seconds
 
-- Madden06/06: crash at coin toss
-
-- Iridium II: hangs at first boss -> maybe due to bad rom?
+- Madden06/07: crash at coin toss
 
 - Sennen Kazoku: hang on first screen
 - Starsky & Hutch: crash going ingame
@@ -47,7 +44,21 @@ PLEASE do not report errors without testing with the original BIOS
 - all videomodes including affine and special effects
 - all soundchannels
 - saving as in GBA
-- turbomode
+- Savestates
+- FastForward - speed up game by factor 2-4
+- CPU Turbomode - give games additional CPU power
+- Flickerblend - turn on for games like F-Zero, Mario Kart or NES Classics to prevent flickering effects
+
+# Savestates
+Core provides 4 slots to save the state. The first slot gets saved to disk and automatically loaded (but not applied)
+upon next load of game. Rest 3 slots are residing only in memory for temporary use.
+First slot save/restore is available from OSD as well. 
+
+
+Hot keys for save states:
+- Alt-F1..F4 - save the state
+- F1...F4 - restore
+
 
 # Not included
 - Multiplayer features like Serial
