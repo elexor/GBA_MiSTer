@@ -33,6 +33,7 @@ entity gba_top is
       save_state         : in     std_logic;
       load_state         : in     std_logic;
       interframe_blend   : in     std_logic;
+      maxpixels          : in     std_logic; -- limit pixels per line
       -- sdram interface
       sdram_read_ena     : out    std_logic;                     -- triggered once for read request 
       sdram_read_done    : in     std_logic := '0';              -- must be triggered once when sdram_read_data is valid after last read
@@ -62,6 +63,7 @@ entity gba_top is
       save_eeprom        : out    std_logic;
       save_sram          : out    std_logic;
       save_flash         : out    std_logic;
+      load_done          : out    std_logic;                     -- savestate successfully loaded
       -- Keys - all active high   
       KeyA               : in     std_logic; 
       KeyB               : in     std_logic;
@@ -153,6 +155,10 @@ architecture arch of gba_top is
    signal mem_bus_done         : std_logic;
    
    signal bus_lowbits          : std_logic_vector(1 downto 0); -- only required for sram access
+                                          
+   signal registersettle       : std_logic;
+   
+   signal bitmapdrawmode       : std_logic;
                                
    signal VRAM_Lo_addr         : integer range 0 to 16383;
    signal VRAM_Lo_datain       : std_logic_vector(31 downto 0);
@@ -265,7 +271,18 @@ begin
 
    -- dummy modules
    igba_reservedregs : entity work.gba_reservedregs port map ( clk100, gb_bus);
-   igba_serial       : entity work.gba_serial       port map ( clk100, gb_bus);
+   
+   igba_serial       : entity work.gba_serial       
+   port map 
+   ( 
+      clk100            => clk100,
+      gb_bus            => gb_bus,
+      
+      new_cycles        => new_cycles,      
+      new_cycles_valid  => new_cycles_valid,
+                         
+      IRP_Serial        => IRP_Serial
+   );
    
    -- real modules
    igba_joypad : entity work.gba_joypad
@@ -345,6 +362,8 @@ begin
       clk100              => clk100,
       gb_on               => gbaon,
       reset               => reset,
+      
+      load_done           => load_done,
                         
       save                => save_state,
       load                => load_state,
@@ -435,6 +454,8 @@ begin
       
       bus_lowbits          => bus_lowbits,
       
+      registersettle       => registersettle,
+      
       save_eeprom          => save_eeprom,
       save_sram            => save_sram,  
       save_flash           => save_flash, 
@@ -450,6 +471,8 @@ begin
       MaxPakAddr           => MaxPakAddr_modified,
       SramFlashEnable      => SramFlashEnable,
       memory_remap         => memory_remap,
+      
+      bitmapdrawmode       => bitmapdrawmode,
       
       VRAM_Lo_addr         => VRAM_Lo_addr,   
       VRAM_Lo_datain       => VRAM_Lo_datain, 
@@ -489,6 +512,9 @@ begin
       loading_savestate   => loading_savestate,
       
       gb_bus              => gb_bus,
+      
+      new_cycles          => new_cycles,      
+      new_cycles_valid    => new_cycles_valid,
       
       IRP_DMA             => IRP_DMA,
       
@@ -559,6 +585,9 @@ begin
       gb_bus               => gb_bus,
 
       interframe_blend     => interframe_blend,
+      maxpixels            => maxpixels,
+      
+      bitmapdrawmode       => bitmapdrawmode,
 
       pixel_out_x          => pixel_out_x,
       pixel_out_y          => pixel_out_y,
@@ -658,6 +687,7 @@ begin
       wait_cnt_value   => unsigned(REG_WAITCNT),
       wait_cnt_update  => WAITCNT_written,
       
+      registersettle   => registersettle,
       dma_on           => dma_on,
       do_step          => gba_step,
       done             => cpu_done,

@@ -187,6 +187,7 @@ parameter CONF_STR = {
 	"O5,Pause,Off,On;",
    "OJ,Flickerblend,Off,On;",
 	"H2OG,Turbo,Off,On;",
+   "OK,Spritelimit,Off,On;",
 	"R0,Reset;",
 	"J1,A,B,L,R,Select,Start,FastForward;",
 	"jn,A,B,L,R,Select,Start,X;",
@@ -243,6 +244,8 @@ hps_io #(.STRLEN($size(CONF_STR)>>3), .WIDE(1)) hps_io
 	.ps2_key(ps2_key),
 
 	.status(status),
+	.status_in({status[31:17],1'b0,status[15:0]}),
+	.status_set(cart_download),	
 	.status_menumask(status_menumask),
 	.info_req(ss_info_req),
 	.info(ss_info),
@@ -354,14 +357,14 @@ always @(posedge clk_sys) begin
 
 		if(status[18:17]) ss_base <= 0;
 
-		ss_info <= 7'd1 + {ss_base, ss_load};
-		ss_info_req <= (ss_load | ss_save);
+		if(ss_load | ss_save) ss_info <= 7'd1 + {ss_base, ss_load};
+		ss_info_req <= (ss_loaded | ss_save);
 	end
 end
 
 ////////////////////////////  SYSTEM  ///////////////////////////////////
 
-wire        save_eeprom, save_sram, save_flash;
+wire save_eeprom, save_sram, save_flash, ss_loaded;
 
 reg fast_forward, pause, cpu_turbo;
 reg ff_latch;
@@ -421,6 +424,7 @@ gba
    .save_state(ss_save),
    .load_state(ss_load),
    .interframe_blend(status[19]),
+   .maxpixels(status[20]),
 
 	.sdram_read_ena(sdram_req),       // triggered once for read request 
 	.sdram_read_done(sdram_ack),      // must be triggered once when sdram_read_data is valid after last read
@@ -445,6 +449,7 @@ gba
 	.save_eeprom(save_eeprom),
 	.save_sram(save_sram),
 	.save_flash(save_flash),
+	.load_done(ss_loaded),
 
 	.bios_wraddr(bios_wraddr),
 	.bios_wrdata(bios_wrdata),
